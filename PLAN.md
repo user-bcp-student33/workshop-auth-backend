@@ -1,187 +1,170 @@
-# Plan de correccion del login
+# Plan propuesto: H-05, H-06, H-07 y cobertura automatica
 
-## 1. Summary
+## Summary
 
-Propuesta documental para H-01, H-02, H-03 y H-04, confirmados como
-**Pendiente** en [HALLAZGOS.md](HALLAZGOS.md). Seleccion confirmada por el
-usuario; motivo indicado: H-01 por riesgo alto y correccion SQL acotada.
-Los otros tres tambien tienen severidad alta; no se presume otro motivo.
-No se modifica codigo ni se cambia el estado de la matriz.
+Plan del 2026-10-19, limitado a este backend. **Implementacion aprobada por
+el usuario el 2026-10-19**, en orden H-05/H-06/H-07/P-01, con cierre tras
+pruebas verdes por item. Se aprobaron los valores genericos propuestos para
+500 y el enforcement del 85%. H-02/H-03/H-04 tuvieron aprobacion previa y estan resueltos;
+su evidencia permanece en [TESTING.md](docs/TESTING.md) y [HALLAZGOS.md](HALLAZGOS.md).
+El seguimiento de esta ejecucion permanece exclusivamente en HALLAZGOS.md.
 
-## 2. Scope
+## Scope
 
-- **Dentro:** este backend; SQL parametrizado, almacenamiento seguro de
-  passwords, propuesta de token firmado y configuracion externa.
-- **Fuera:** otros componentes, nuevos endpoints, correcciones H-05/H-06/H-07
-  como objetivos independientes, implementacion y ejecucion de migraciones.
-- [docs/ENDPOINTS.md](docs/ENDPOINTS.md) permanece intacto. Se conservan
-  request, validaciones, mensajes, codigos HTTP, campos de respuesta, escape
-  HTML4 y expiracion de 3600 segundos. Las entradas SQL manipuladas dejaran de
-  autenticar: es la correccion buscada, no una garantia a preservar.
+- Dentro: alcances independientes siguientes; pruebas primero, cambio despues,
+  diff y verificacion propios antes de pasar al siguiente.
+- Fuera: reimplementar H-01/H-02/H-03/H-04, otros componentes, migraciones reales,
+  nuevos endpoints, rate limiting o cambios de health no solicitados.
 
-## 3. Supuestos
+## Item: H-05 - Errores: respuesta expone detalles internos
 
-- Java 21, SQLite y herramientas existentes en [pom.xml](pom.xml).
-- Las pruebas futuras usaran una base temporal bajo `target`, mediante
-  `AUTH_DB_URL`, sin tocar datos de uso normal ni registrar credenciales.
-- No se conocen los origenes autorizados ni los consumidores reales del
-  token; no se inspeccionaran otros repositorios para inferirlos.
+- **Evidencia/problema:** [AuthResource.java:33](src/main/java/com/bcp/workshop/auth/AuthResource.java#L33)
+  devuelve mensaje/clase de excepcion sin registrar el detalle en ese catch;
+  [AuthFailureTest.java:26](src/test/java/com/bcp/workshop/auth/AuthFailureTest.java#L26)
+  caracteriza esa divulgacion. Tipo: Vulnerabilidad; prioridad media del backlog.
+- **Alcance/cambio:** sanear exclusivamente el 500 del resource, conservando
+  HTTP 500 y claves string `message`/`exception`, como selecciono el usuario.
+  Proponer valores constantes `Internal server error` / `InternalServerError`
+  (este ultimo es un codigo publico, no una clase Java). Registrar diagnostico
+  y stacktrace solo en servidor, con saneamiento para no volcar credenciales,
+  hashes, tokens, claves ni mensajes sensibles de excepciones.
+- **Archivos:** [AuthResource.java](src/main/java/com/bcp/workshop/auth/AuthResource.java),
+  [AuthFailureTest.java](src/test/java/com/bcp/workshop/auth/AuthFailureTest.java),
+  [ENDPOINTS.md](docs/ENDPOINTS.md), [TESTING.md](docs/TESTING.md)
+  y fila H-05 de [HALLAZGOS.md](HALLAZGOS.md).
+- **Prueba antes:** ejecutar caracterizacion 500 con mensaje y mensaje nulo;
+  agregar regresion HTTP con excepcion que contiene un marcador sensible:
+  cuerpo exacto generico, sin mensaje original ni nombre de clase. Debe fallar
+  antes. Capturar logs con herramientas de prueba existentes y exigir diagnostico
+  util sin marcador sensible. Despues, repetir ambos escenarios y suite HTTP.
+- **Limite contractual:** H-05 pide precisamente retirar detalles del error;
+  actualizar solo ejemplo/semantica del 500 y su nota de seguridad. Preservar
+  200/400/401, errores del framework, campos exitosos, JWT, CORS y health.
 
-## 4. Decisiones tecnicas por tomar y propuesta por hallazgo
+## Item: H-06 - SCA: Quarkus 3.27.4 y Commons Text 1.9
 
-### H-01 — Concatenacion SQL
+- **Evidencia/problema:** versiones en [pom.xml:13](pom.xml#L13) y
+  [pom.xml:58](pom.xml#L58); uso observado:
+  [AuthService.java:45](src/main/java/com/bcp/workshop/auth/AuthService.java#L45),
+  `escapeHtml4`. La version por si sola no prueba explotabilidad.
+- **Alcance/cambio:** obtener arbol resuelto y contrastar advisories oficiales/
+  alertas accesibles, rangos afectados y ruta realmente usada, incluidas
+  transitivas. Elegir versiones corregidas compatibles con Java 21; actualizar
+  Quarkus mediante su BOM/plugin coordinados, sin overrides arbitrarios.
+  Conservar escape HTML4; no sustituirlo manualmente ni silenciar alertas.
+- **Archivos:** [pom.xml](pom.xml), [README.md](README.md),
+  [TESTING.md](docs/TESTING.md) y fila H-06 de [HALLAZGOS.md](HALLAZGOS.md).
+  Pruebas: [AuthServiceTest.java](src/test/java/com/bcp/workshop/auth/AuthServiceTest.java)
+  y [AuthResourceTest.java](src/test/java/com/bcp/workshop/auth/AuthResourceTest.java).
+  No modificar workflows ni contrato para acomodar una actualizacion.
+- **Prueba antes:** caracterizar nombre con caracteres HTML4, comillas,
+  ampersand y Unicode, mas matriz HTTP/JWT/CORS/health. Guardar arbol y
+  evidencia SCA inicial; si hay CVE aplicable, demostrar version afectada antes
+  y corregida despues sin ejecutar exploits. Repetir contrato y analisis tras
+  actualizar. Si no hay CVE aplicable, documentar investigacion, no inventar rojo.
+- **Cierre condicionado:** registrar identificador, fuente, version corregida
+  y aplicabilidad por aviso. Sin acceso/evidencia suficiente, mantener Pendiente;
+  no declarar toda dependencia segura ni seleccionar hoy una version a ciegas.
 
-- **Problema:** [LegacyDatabase.java:32](src/main/java/com/bcp/workshop/auth/LegacyDatabase.java#L32)
-  concatena ambas credenciales en una consulta ejecutada con `Statement`.
-- **Cambio:** usar `PreparedStatement` con dos parametros vinculados, sin
-  interpolacion ni escape manual. Conservar el mapeo de `UserRecord` y
-  `try-with-resources`. Al abordar H-02, la busqueda evolucionara a username
-  parametrizado y verificacion del hash fuera del repositorio.
-- **Archivos:** [LegacyDatabase.java](src/main/java/com/bcp/workshop/auth/LegacyDatabase.java)
-  y [AuthResourceTest.java](src/test/java/com/bcp/workshop/auth/AuthResourceTest.java);
-  nuevo `src/test/java/com/bcp/workshop/auth/LegacyDatabaseTest.java`.
-- **Caracterizacion previa:** usuarios de laboratorio validos, password
-  incorrecto, usuario inexistente, espacios significativos y mapeo de campos.
-  Fijar HTTP 200/401 y cuerpos antes de cambiar SQL.
-- **Regresion posterior:** comillas y metacaracteres se tratan como datos;
-  no autentican otro usuario. Sin dependencias nuevas.
+## Item: H-07 - Clean code: separacion de responsabilidades
 
-### H-02 — Passwords en texto plano
+- **Evidencia/problema actual:** [AuthResource.java:22](src/main/java/com/bcp/workshop/auth/AuthResource.java#L22)
+  ya delega a [AuthService.java:23](src/main/java/com/bcp/workshop/auth/AuthService.java#L23);
+  SQL y hash estan separados y la salida usa
+  [LoginResponse.java](src/main/java/com/bcp/workshop/auth/LoginResponse.java).
+  La mezcla original se redujo en H-02: no rehacerla ni presentar ese cambio
+  previo como implementacion nueva. Restan cierre verificable y literales HTTP.
+- **Alcance/cambio:** verificar Resource HTTP -> Service -> Repository/seguridad,
+  DTO propio, metodos con responsabilidad unica y guard clauses. Reemplazar
+  400/401/500 del resource por `Response.Status` nombrados; conservar textos
+  contractuales y reutilizar helpers existentes, sin nueva jerarquia/abstraccion.
+  H-05 es dueno del saneamiento 500; este item no lo vuelve a implementar.
+- **Archivos:** [AuthResource.java](src/main/java/com/bcp/workshop/auth/AuthResource.java),
+  [AuthServiceTest.java](src/test/java/com/bcp/workshop/auth/AuthServiceTest.java),
+  [AuthResourceTest.java](src/test/java/com/bcp/workshop/auth/AuthResourceTest.java),
+  [TESTING.md](docs/TESTING.md) y fila H-07 de [HALLAZGOS.md](HALLAZGOS.md).
+- **Prueba antes:** ampliar pruebas de servicio con dobles para usuario ausente,
+  password incorrecto, respuesta publica y ausencia de emision en rechazos;
+  ejecutar matriz HTTP vigente tras H-05/H-06. Repetirla sin diferencias despues.
+  Revisar dependencias de capas en el diff: no exigir un rojo artificial a un
+  refactor de comportamiento preservado.
 
-- **Problema:** [LegacyDatabase.java:22](src/main/java/com/bcp/workshop/auth/LegacyDatabase.java#L22)
-  almacena e inicializa passwords legibles; la consulta los compara directamente.
-- **Cambio:** repositorio busca por username con parametros; servicio verifica
-  un hash lento con salt aleatorio por password. Propuesta sin dependencias:
-  PBKDF2-HMAC-SHA256 del JDK, formato versionado y comparacion constante de
-  claves derivadas. Costo, longitud y salt se fijaran con constantes nombradas
-  y evidencia de calibracion; es una propuesta, no una convencion ya existente.
-  No truncar ni recortar passwords.
-- **Migracion propuesta:** convertir registros existentes en una transaccion
-  antes de aceptar logins, con version de esquema explicita; conservar
-  identidades y roles, hacerla idempotente y revertir ante error. Sembrar solo
-  hashes en bases nuevas; no usar fallback a texto plano ni clasificar por
-  prefijos ambiguos. Acordar respaldo local protegido y tratamiento de copias
-  SQLite: actualizar filas no garantiza borrar restos del archivo o backups.
-- **Archivos:** [LegacyDatabase.java](src/main/java/com/bcp/workshop/auth/LegacyDatabase.java),
-  [AuthResource.java](src/main/java/com/bcp/workshop/auth/AuthResource.java),
-  [AuthResourceTest.java](src/test/java/com/bcp/workshop/auth/AuthResourceTest.java)
-  y [README.md](README.md); nuevos `AuthService.java`, `PasswordHasher.java` y
-  `PasswordMigration.java` en `src/main/java/com/bcp/workshop/auth`, con pruebas
-  homonimas en el paquete de test.
-- **Caracterizacion previa:** fixture de esquema legado, login de ambos roles,
-  password incorrecto, espacios y respuesta completa. Luego verificar migracion
-  repetida sin cambios, rollback, ausencia de texto plano en filas, salts
-  distintos para passwords iguales y rechazo de hashes invalidos con error
-  controlado y logging sin secretos.
+## Item: P-01 - Propuesta adicional: enforcement JaCoCo del 85%
 
-### H-03 — Token Base64 con secreto embebido
+- **Identidad/evidencia:** candidato nuevo al redactar el plan; tras aprobar
+  implementacion, registrado como H-08 antes de ejecutarlo. Tipo: deuda de validacion.
+  [pom.xml:89](pom.xml#L89) configura agente/reporte, sin goal `check`;
+  [ci.yml:21](.github/workflows/ci.yml#L21) ejecuta `verify`. El reporte por si
+  solo no hace fallar el build bajo el umbral de [REGLAS.md](REGLAS.md).
+- **Alcance/cambio:** agregar `jacoco:check` en `verify`, despues del reporte,
+  limite LINE/COVEREDRATIO >= 0.85 por clase productiva, sin exclusiones para
+  inflar cobertura. Aplicarlo a todas las clases es mas estricto que medir solo
+  modificadas y evita introducir calculo diferencial/herramientas nuevas.
+- **Archivos:** [pom.xml](pom.xml), [TESTING.md](docs/TESTING.md).
+  Tras aprobar implementacion, registrar una fila nueva en
+  [HALLAZGOS.md](HALLAZGOS.md), con ID libre, antes de ejecutar el item.
+- **Prueba antes:** con datos JaCoCo nuevos bajo `target`, ejecutar solo una
+  seleccion reducida de pruebas y `verify`: hoy no rechaza cobertura insuficiente.
+  Tras el cambio, esa misma seleccion debe fallar por el limite, no por tests.
+  Luego suite completa con otro archivo nuevo debe pasar; conservar ambos logs
+  y CSV/XML. No cambiar fuentes/tests para falsear la medicion.
 
-- **Problema:** [LegacyTokenUtil.java:13](src/main/java/com/bcp/workshop/auth/LegacyTokenUtil.java#L13)
-  codifica identidad, rol, vencimiento y secreto sin firma.
-- **Cambio deseado:** emisor dedicado de tokens firmados, con claims explicitos
-  de identidad, rol y expiracion; claves externas, nunca dentro del payload.
-  **Bloqueado bajo el contrato actual:** este describe expresamente el formato
-  Base64 con secreto. No reemplazarlo por JWT, agregar campos o aceptar ambos
-  formatos como atajo; tampoco afirmar que externalizar el secreto resuelve H-03.
-  No existe una correccion completa compatible con esa representacion.
-- **Archivos candidatos, solo tras resolver el bloqueo:** [LegacyTokenUtil.java](src/main/java/com/bcp/workshop/auth/LegacyTokenUtil.java),
-  [AuthResource.java](src/main/java/com/bcp/workshop/auth/AuthResource.java),
-  [application.properties](src/main/resources/application.properties),
-  [pom.xml](pom.xml) y [README.md](README.md); nuevo `TokenService.java` y tests
-  de token. Una biblioteca mantenida de firma/JOSE se justificaria frente a
-  criptografia casera; no se selecciona ni agrega ninguna en esta entrega.
-- **Caracterizacion previa:** decodificar token de prueba, comprobar campos,
-  rol y timestamp entre los instantes anterior/posterior mas 3600; verificar
-  igualdad con `expiresIn`, sin imprimir secreto ni token.
-  Pruebas futuras de firma, alteracion y expiracion requieren acordar primero
-  formato y verificador. No se agrega un endpoint de validacion.
+## Supuestos
 
-### H-04 — Secreto y CORS hardcodeados
+- Java 21/Maven existentes, SQLite y claves ficticias exclusivamente bajo `target`;
+  ninguna dependencia nueva presupuestada. En la fase documental no se ejecutaron
+  pruebas; las ejecuciones posteriores constan en [TESTING.md](docs/TESTING.md).
 
-- **Problema:** constante en [LegacyTokenUtil.java:8](src/main/java/com/bcp/workshop/auth/LegacyTokenUtil.java#L8)
-  y origen comodin en [application.properties:5](src/main/resources/application.properties#L5).
-- **Cambio:** propiedad de secreto inyectada desde entorno, obligatoria al
-  iniciar y sin fallback real; valor ficticio solo en perfil de pruebas.
-  Mientras H-03 este bloqueado, conservar el serializado actual y advertir
-  que el secreto seguira expuesto en tokens. Rotar el valor exige coordinacion
-  con consumidores, sin acceder a sus archivos.
-  Parametrizar CORS con lista explicita de origenes autorizados, nunca `.*`;
-  acordar esos valores antes de activar la restriccion. Conservar metodos y
-  cabeceras actuales salvo necesidad aprobada.
-- **Archivos:** [LegacyTokenUtil.java](src/main/java/com/bcp/workshop/auth/LegacyTokenUtil.java),
-  [AuthResource.java](src/main/java/com/bcp/workshop/auth/AuthResource.java),
-  [application.properties](src/main/resources/application.properties),
-  [README.md](README.md); nuevo test de configuracion/token y test HTTP CORS.
-- **Caracterizacion previa:** token y login con secreto ficticio; respuestas
-  y preflight CORS actuales para origenes de prueba. Despues: arranque falla
-  sin secreto, origen permitido funciona y origen ajeno no recibe permiso
-  CORS (sin exigir un codigo HTTP no definido por Quarkus).
+## Decisiones tecnicas por tomar (pendientes o resueltas)
 
-### Secuencia y Clean Code
+- Resueltas: aprobacion de implementacion y textos del 500 registrada arriba;
+  incluir enforcement y dejar SQL->401 fuera. Tras investigar H-06 se selecciono
+  BOM/plugin Quarkus 3.40.1.1 y Commons Text 1.15.0 gestionado por BOM;
+  fuentes y validacion en [TESTING.md](docs/TESTING.md).
 
-Caracterizacion primero; H-01, luego H-02; H-04 en cambio separado y coordinado.
-H-03 no se implementa mientras persista el conflicto. Seguir
-[GOOD_PRACTICES.md](docs/GOOD_PRACTICES.md) y [REGLAS.md](REGLAS.md):
-Resource solo HTTP, servicio para autenticacion, repositorio solo SQL y
-seguridad separada. El trabajo de H-02 extraera un DTO de salida
-(`LoginResponse.java`, con DTO de usuario), sin exponer el registro de
-persistencia ni alterar JSON. Cada metodo tendra una responsabilidad,
-guard clauses, helpers reutilizados y constantes para TTL, SQL y parametros
-criptograficos; no introducir anidamiento profundo ni duplicar verificaciones.
-No ampliar la limpieza a superficies ajenas.
+## Riesgos y mitigaciones
 
-## 5. Riesgos y mitigaciones
+- Clientes que dependan del detalle 500: advertir cambio limitado H-05 y
+  caracterizar forma/tipos, sin inspeccionar consumidores externos.
+- Actualizacion altera errores del framework/JWT: suite completa y comparacion
+  contractual; detenerse ante incompatibilidad, no adaptar tests para ocultarla.
 
-- **Perdida de acceso o datos:** fixture legado, transaccion, rollback,
-  respaldo protegido y prueba de segundo arranque antes de migrar una base real.
-- **Incompatibilidad con consumidores:** mantener contrato, bloquear H-03 y
-  coordinar secreto/origenes explicitamente; no inventar compatibilidad externa.
-- **Regresion HTTP o filtracion:** caracterizacion completa y pruebas de logs
-  sin passwords, hashes, tokens ni claves. H-05 no se corrige incidentalmente.
+## Criterios de aceptacion (medibles)
 
-## 6. Criterios de aceptacion medibles
+- Cada item tiene diff propio y evidencia antes/despues; no avanzar sin verde.
+- Cero mensajes/clases internos en 500; diagnostico seguro solo en servidor.
+- >=85% de lineas por clase modificada, ramas informadas aparte; P-01 demuestra
+  rechazo bajo umbral. CodeQL/Dependency Review intactos, sin excepciones nuevas.
 
-1. Las pruebas de caracterizacion pasan antes del primer cambio productivo;
-   todos los casos 200/400/401/500 documentados quedan cubiertos, incluido DTO
-   nulo por invocacion directa y excepcion controlada del resource.
-2. H-01: cero credenciales concatenadas; H-02: cero passwords legibles en las
-   filas migradas y cero cambios de identidad/rol al repetir migracion.
-3. H-04: cero secretos en clases/configuracion productiva versionada y cero
-   origenes comodin; pruebas de origen permitido/ajeno y secreto ausente pasan.
-4. Cobertura del codigo modificado >= 85%; contrato sin cambios. H-03 no puede
-   declararse corregido mientras siga bloqueado; estados solo en la matriz.
+## Plan de validacion
 
-## 7. Plan de validacion
+- **Unitarias:** pruebas por item indicadas arriba, primero y con fixtures aislados.
+- **Funcionales:** matriz de ambos endpoints y JWT/CORS; solo H-05 cambia contrato.
+- **Seguridad:** no SQL concatenado, secretos/logs sensibles ni alertas silenciadas.
+- **Evidencia:** desde raiz, JDK 21, `QUARKUS_HTTP_TEST_PORT=0` y
+  `AUTH_DB_URL=jdbc:sqlite:./target/plan-validation.db`; selectores `mvn -B -Dtest=... test`,
+  despues `mvn -B verify` con archivo JaCoCo nuevo por corrida. Registrar comandos
+  completos, salidas, fallos/pendientes, diffs y reportes en [TESTING.md](docs/TESTING.md).
+  Estados exclusivamente en [HALLAZGOS.md](HALLAZGOS.md).
 
-- **Unitarias:** validaciones, mapeos, consultas, hash, migracion y token con
-  fixtures aislados; tests de regresion de seguridad separados de caracterizacion.
-- **Funcionales:** ampliar [AuthResourceTest.java](src/test/java/com/bcp/workshop/auth/AuthResourceTest.java)
-  para errores, ambos roles, escape HTML4, `client` opcional, campos desconocidos,
-  formato/tipos JSON y CORS; no comparar orden de propiedades.
-- **Seguridad:** comprobar parametros SQL, integridad de migracion y ausencia de
-  secretos en salida/logs; mantener CodeQL y Dependency Review habilitados.
-- **Evidencia futura:** ejecutar `mvn -B "-Dtest=AuthResourceTest" test` como
-  base, selectores de los nuevos tests por cambio y `mvn -B verify` al integrar,
-  como en [ci.yml](.github/workflows/ci.yml). Adjuntar resultados exactos y
-  reporte JaCoCo de clases/lineas modificadas (no sustituirlo por cobertura global).
-  No se han ejecutado tests: esta entrega solo crea el plan.
+## Tareas sugeridas por rol
 
-## 8. Tareas sugeridas por rol
+- **Chapter/PO:** aprobar alcances y excepcion contractual H-05.
+- **Tech Lead:** revisar contrato 500; decidir versiones con evidencia; revisar capas/gates.
+- **Backend:** escribir caracterizacion; implementar por item; capturar diffs y logs.
+- **QA:** preparar fixtures; comparar matriz HTTP; verificar cobertura y rojo/verde.
+- **Frontend:** solo coordinar 500; no leer/modificar otros componentes.
+- **Cyber:** contrastar advisories y revisar saneamiento de diagnosticos.
 
-- **Chapter/PO:** confirmar prioridades y resolver el bloqueo contractual.
-- **Tech Lead:** aprobar limites de capas; decidir hash/migracion; resolver
-  formato de token y coordinacion de configuracion.
-- **Backend:** escribir caracterizacion; parametrizar SQL; implementar y probar
-  hash/migracion/configuracion en cambios separados cuando se autorice.
-- **Frontend:** solo confirmar origenes y consumo del token mediante coordinacion;
-  no corresponde modificar ni leer su codigo en este ambito.
-- **QA:** preparar fixtures; verificar matriz HTTP y regresiones; comprobar
-  migracion repetida, cobertura y evidencias.
-- **Cyber:** revisar parametros criptograficos, politica de claves y origenes.
+## Preguntas abiertas
 
-## 9. Preguntas abiertas
+- SQL->401: [LegacyDatabase.java:54](src/main/java/com/bcp/workshop/auth/LegacyDatabase.java#L54)
+  devuelve `null` ante fallo SQL; cambiarlo alteraria el contrato explicitamente
+  documentado. Se deja fuera por decision del usuario, sin corregirlo en H-05/H-07.
+- Que advisories/alertas vigentes aplican a dependencias resueltas? H-06 debe
+  responderlo con fuentes; esta inspeccion no es una auditoria exhaustiva.
 
-- Que decision autorizada desbloquearia H-03 sin incumplir el contrato vigente?
-- Cuales son los origenes autorizados y como se coordinaran secreto y rotacion?
-- Se aprueba PBKDF2 del JDK? Que costo calibrado y politica de respaldo/migracion
-  deben adoptarse antes de H-02?
+Documentos consultados: [ENDPOINTS.md](docs/ENDPOINTS.md),
+[GOOD_PRACTICES.md](docs/GOOD_PRACTICES.md), [REGLAS.md](REGLAS.md),
+[HALLAZGOS.md](HALLAZGOS.md), [RETO.md](RETO.md), [README.md](README.md)
+y plan anterior; contrastados con codigo, pruebas, POM y workflows enlazados.
