@@ -32,24 +32,24 @@ Devuelve **solo** un documento Markdown con estas secciones y bullets:
 
 1. **Summary**
 2. **Scope**
-	- Dentro del alcance
-	- Fuera del alcance
+    - Dentro del alcance
+    - Fuera del alcance
 3. **Supuestos**
 4. **Decisiones técnicas por tomar (pendientes o resueltas)**
 5. **Riesgos y mitigaciones**
 6. **Criterios de aceptación (medibles)**
 7. **Plan de validación**
-	- Pruebas unitarias
-	- Pruebas funcionales
-	- Seguridad (comprobaciones mínimas)
-	- Evidencia requerida (qué adjuntar)
+    - Pruebas unitarias
+    - Pruebas funcionales
+    - Seguridad (comprobaciones mínimas)
+    - Evidencia requerida (qué adjuntar)
 8. **Tareas sugeridas por rol**
-	- Chapter/PO
-	- Tech Lead
-	- Backend
-	- Frontend
-	- QA
-	- Cyber
+    - Chapter/PO
+    - Tech Lead
+    - Backend
+    - Frontend
+    - QA
+    - Cyber
 9. **Preguntas abiertas**
 
 ## 4) Constraints
@@ -59,6 +59,7 @@ Devuelve **solo** un documento Markdown con estas secciones y bullets:
 - Los criterios de aceptación deben ser verificables; no escribas “mejorar el rendimiento” sin una métrica.
 - El plan de validación debe incluir al menos un elemento de evidencia concreto, como salida de pruebas, un checklist o un archivo actualizado.
 - Mantén la salida en un máximo de 1-2 páginas para que siga siendo usable.
+- Generar la salida en un archivo evidence_output.md con formato Markdown.
 
 ## 5) Validation Rules
 La salida es válida si:
