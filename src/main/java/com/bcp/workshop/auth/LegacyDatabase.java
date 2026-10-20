@@ -2,43 +2,71 @@ package com.bcp.workshop.auth;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import org.jboss.logging.Logger;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
-import java.sql.Statement;
+import java.sql.SQLException;
 
 @ApplicationScoped
 public class LegacyDatabase {
+    private static final Logger LOG = Logger.getLogger(LegacyDatabase.class);
     private static final String DB_URL = System.getenv().getOrDefault("AUTH_DB_URL", "jdbc:sqlite:./data/workshop.db");
+    private static final String FIND_BY_USERNAME_SQL =
+            "SELECT id,username,display_name,role,password FROM legacy_users WHERE username=?";
+    private final String databaseUrl;
+    private final PasswordMigration migration;
+
+    public LegacyDatabase() {
+        this(DB_URL, new PasswordMigration(new PasswordHasher()));
+    }
+
+    @Inject
+    public LegacyDatabase(PasswordMigration migration) {
+        this(DB_URL, migration);
+    }
+
+    LegacyDatabase(String databaseUrl) {
+        this(databaseUrl, new PasswordMigration(new PasswordHasher()));
+    }
+
+    private LegacyDatabase(String databaseUrl, PasswordMigration migration) {
+        this.databaseUrl = databaseUrl;
+        this.migration = migration;
+    }
 
     @PostConstruct
     void initialize() {
-        try {
-            Files.createDirectories(Path.of("data"));
-            try (Connection connection = DriverManager.getConnection(DB_URL); Statement statement = connection.createStatement()) {
-                statement.executeUpdate("CREATE TABLE IF NOT EXISTS legacy_users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT NOT NULL, display_name TEXT NOT NULL, role TEXT NOT NULL)");
-                statement.executeUpdate("INSERT OR IGNORE INTO legacy_users(username,password,display_name,role) VALUES ('student','Workshop123!','Workshop Student','STUDENT')");
-                statement.executeUpdate("INSERT OR IGNORE INTO legacy_users(username,password,display_name,role) VALUES ('trainer','Trainer123!','Workshop Trainer','TRAINER')");
+        migration.initialize(databaseUrl);
+    }
+
+    public StoredCredentials findByUsername(String username) {
+        try (var connection = DriverManager.getConnection(databaseUrl);
+             var statement = connection.prepareStatement(FIND_BY_USERNAME_SQL)) {
+            statement.setString(1, username);
+            try (var rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    return null;
+                }
+                return mapCredentials(rows);
             }
-        } catch (Exception error) {
-            error.printStackTrace();
+        } catch (SQLException error) {
+            LOG.error("Authentication database query failed");
+            return null;
         }
     }
 
-    public UserRecord findByCredentials(String username, String password) {
-        String sql = "SELECT id, username, display_name, role FROM legacy_users WHERE username='" + username + "' AND password='" + password + "'";
-        try (Connection connection = DriverManager.getConnection(DB_URL);
-             Statement statement = connection.createStatement();
-             ResultSet result = statement.executeQuery(sql)) {
-            if (result.next()) {
-                return new UserRecord(result.getLong("id"), result.getString("username"), result.getString("display_name"), result.getString("role"));
-            }
-        } catch (Exception error) {
-            error.printStackTrace();
+    private StoredCredentials mapCredentials(ResultSet rows) throws SQLException {
+        UserRecord user = new UserRecord(rows.getLong("id"), rows.getString("username"),
+                rows.getString("display_name"), rows.getString("role"));
+        return new StoredCredentials(user, rows.getString("password"));
+    }
+
+    public record StoredCredentials(UserRecord user, String passwordHash) {
+        @Override
+        public String toString() {
+            return "StoredCredentials[redacted]";
         }
-        return null;
     }
 }
