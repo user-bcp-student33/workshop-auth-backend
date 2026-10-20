@@ -4,10 +4,10 @@
       "type": "http",
       "url": "http://localhost:8081/mcp"
     },
-    /**"github-official": {
+    "github-official": {
       "type": "http",
       "url": "https://api.githubcopilot.com/mcp/"
-    },**/
+    },
     "github-official-readonly": {
       "type": "http",
       "url": "https://api.githubcopilot.com/mcp/",
