@@ -32,7 +32,7 @@ class AuthFailureTest {
     void returnsGenericInternalErrorOverHttp(String username) {
         given()
                 .contentType("application/json")
-                .body(Map.of("username", username, "password", "test-only"))
+                .body(Map.of("username", username, "password", "test-only", "client", "Web_A-01"))
                 .when().post("/auth/login")
                 .then()
                 .statusCode(500)
@@ -63,7 +63,7 @@ class AuthFailureTest {
         logger.addHandler(capture);
         try {
             given().contentType("application/json")
-                    .body(Map.of("username", "sensitive-message", "password", SENSITIVE_MARKER))
+                    .body(Map.of("username", "sensitive-message", "password", SENSITIVE_MARKER, "client", "Web_A-01"))
                     .when().post("/auth/login").then().statusCode(500);
             assertEquals(1, records.size());
             LogRecord record = records.getFirst();
@@ -96,7 +96,7 @@ class AuthFailureTest {
         }
 
         @Override
-        public LoginResponse authenticate(String username, String password) {
+        public LoginResponse authenticate(String username, String password, String client) {
             if ("sensitive-message".equals(username)) {
                 var error = new IllegalStateException(SENSITIVE_MARKER,
                         new IllegalArgumentException(SENSITIVE_MARKER));

@@ -149,7 +149,7 @@ class LegacyDatabaseTest {
 
     private UserRecord findByCredentials(String username, String password) {
         LoginResponse response = new AuthService(database, new PasswordHasher(), TokenTestResource.service())
-                .authenticate(username, password);
+                .authenticate(username, password, "Web_A-01");
         return response == null ? null : database.findByUsername(username).user();
     }
 }

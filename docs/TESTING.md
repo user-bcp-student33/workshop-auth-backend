@@ -1,5 +1,122 @@
 # Pruebas del contrato HTTP
 
+## HU-01: implementacion y evidencia
+
+2026-10-21. Issue [#11](https://github.com/user-bcp-student33/workshop-auth-backend/issues/11),
+OpenSpec `hu-01-signed-token-claims`, rama existente `feature/HU-1`.
+La aprobacion humana exige `client` string con formato
+`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`, sin trim, y 400 con exactamente
+`{"message":"Invalid client"}` ante omision o valor invalido. Se conserva
+RS256/SmallRye, sin `AUTH_TOKEN_SECRET`, nuevas dependencias ni cambios de gates.
+
+### Casos y tareas verificadas
+
+| tarea | evidencia actual |
+|---|---|
+| 2.1 | Aprobacion registrada en proposal/spec/design; OpenSpec estricto valido. |
+| 3.1 | `AuthResourceTest`: omision, nulo, vacio, blancos, espacios, prefijos invalidos, puntuacion, no ASCII, salto de linea, 65 caracteres y tipos JSON no string producen solo `message: Invalid client`. No se llama a authenticate. Se preserva la precedencia cuerpo/username/password; client invalido precede a credenciales incorrectas. |
+| 3.2 | Clientes de 1 y 64 caracteres y `Web_A-01` sobreviven sin normalizacion hasta el claim. Pruebas HTTP de ambos usuarios y `TokenServiceTest` preservan los otros claims; verificacion real RS256, payload alterado, clave ajena y limite exacto de expiracion. |
+| 4.1 | `AuthServiceTest.responseLifetimeMatchesSignedExpirationAtIssuance`: reloj fijo con fraccion `.987654321`, firma verificada y respuesta real con expiresIn entero 3600. `now` es el instante de emision truncado a segundos, igual a iat; `exp - now = 3600`, dentro de tolerancia maxima de un segundo. No se usan esperas. |
+| 4.2 | `AuthResourceTest.logsSuccessAndFailureWithoutTokenOrPrivateMaterial`: captura logs del paquete auth durante 200/401/400 y un 500 cuyo error incluye token emitido, PEM y clave privada Base64 en mensaje/causa/suprimidas. Solo aparece el diagnostico saneado, sin esos valores. `AuthFailureTest` mantiene ademas la cobertura HTTP 500. Claves efimeras de laboratorio. |
+| 5.1 | Suite completa: 117 pruebas, 0 fallos, 0 errores, 0 omitidas. Incluye CORS, health y persistencia existentes sin cambios funcionales. JaCoCo check activo, 12 clases, todas con lineas >=85%. |
+
+La prueba exitosa que omitia cliente se adapto intencionalmente a
+`preservesSuccessfulResponseWithApprovedClient`; ahora la omision se protege
+con `rejectsMissingClientOverHttp`. La caracterizacion previa se conserva
+abajo como evidencia historica, no como contrato vigente.
+
+### Comandos y resultados
+
+Todos desde la raiz de este backend, JDK 21. Preparacion del proceso:
+
+```powershell
+$env:JAVA_HOME = Split-Path (Split-Path (Get-Command java).Source)
+$env:AUTH_DB_URL = 'jdbc:sqlite:./target/hu01-client-red.db'
+$env:QUARKUS_HTTP_TEST_PORT = '0'
+```
+
+| comando Maven ejecutado | resultado | log local regenerable |
+|---|---|---|
+| `mvn -B '-Dtest=AuthResourceTest#rejectsMissingClientOverHttp+rejectsInvalidClientBeforeCredentials+doesNotCallServiceForInvalidClient' -l target/hu01-client-red.log test` | BUILD FAILURE esperado: 15 pruebas, 15 fallos antes de implementar | [rojo client](../target/hu01-client-red.log) |
+| `mvn -B '-Dtest=AuthResourceTest,AuthServiceTest,AuthFailureTest,TokenServiceTest' '-Djacoco.destFile=target/hu01-client-green.exec' '-Djacoco.append=false' -l target/hu01-client-green.log test` | BUILD SUCCESS: 58 pruebas, 0 fallos/errores/omitidas | [verde client](../target/hu01-client-green.log) |
+| `mvn -B '-Dtest=AuthResourceTest#rejectsNonStringClient+preservesExactClientAtAcceptedBoundaries,AuthServiceTest#responseLifetimeMatchesSignedExpirationAtIssuance' -l target/hu01-boundaries.log test` | BUILD FAILURE esperado: 9 pruebas, 4 fallos por coercion o error distinto para tipos JSON no string | [rojo tipos](../target/hu01-boundaries.log) |
+| `mvn -B '-Dtest=AuthResourceTest#rejectsNonStringClient+preservesExactClientAtAcceptedBoundaries,AuthServiceTest#responseLifetimeMatchesSignedExpirationAtIssuance' -l target/hu01-boundaries-green.log test` | BUILD SUCCESS tras corregir LoginRequest: 9 pruebas, 0 fallos/errores/omitidas | [verde tipos](../target/hu01-boundaries-green.log) |
+| `mvn -B '-Dtest=AuthResourceTest#logsSuccessAndFailureWithoutTokenOrPrivateMaterial' -l target/hu01-logs.log test` | BUILD SUCCESS: 1 prueba, 0 fallos/errores/omitidas | [logs](../target/hu01-logs.log) |
+
+Ejecucion final con otra base y datos de cobertura sin acumular ejecuciones previas:
+
+```powershell
+$env:AUTH_DB_URL = 'jdbc:sqlite:./target/hu01-verify.db'
+$env:QUARKUS_HTTP_TEST_PORT = '0'
+mvn -B '-Djacoco.destFile=target/hu01-verify.exec' '-Djacoco.dataFile=target/hu01-verify.exec' '-Djacoco.append=false' -l target/hu01-verify.log verify
+```
+
+**BUILD SUCCESS: 117 pruebas aprobadas**, 0 fallos/errores/omitidas.
+[Log completo](../target/hu01-verify.log),
+[CSV JaCoCo](../target/site/jacoco/jacoco.csv),
+[reporte HTML](../target/site/jacoco/index.html).
+Minimo por clase: TokenService 45/49 lineas (91,84%);
+AuthResource 27/27, AuthService 19/19 y LoginRequest 3/3 (100%).
+El gate sigue siendo LINE/COVEREDRATIO >=0.85 por CLASS, sin exclusiones.
+Estos artefactos bajo target se regeneran; los conteos quedan registrados aqui.
+
+### Definition of Done y riesgos
+
+- CUMPLIDO: contratos locales y cambio aprobado de client, pruebas reproducibles,
+  cobertura critica >=85%, RSA/configuracion sin cambios y logs saneados.
+- CUMPLIDO: evidencia para revision en este documento, contrato en ENDPOINTS y
+  decisiones en OpenSpec. No se crearon commits, ramas ni PR automaticamente.
+- PENDIENTE DE OTRO GATE: CI, CodeQL, SCA y revision/aprobacion del PR remotos.
+  El verify local no certifica esos controles ni se reutiliza SCA historico.
+- NO APLICA AL ALCANCE: endpoints de otros componentes, HMAC/secreto compartido,
+  cambios de base, health o consumidores; H-09/#12 y H-10/#13 siguen separados.
+- FALTA EVIDENCIA: compatibilidad operativa en consumidores externos; no se
+  leyeron ni modificaron otros repositorios. Los que omitan client tendran 400.
+
+Reversion: desplegar la version previa si la exigencia de client interrumpe
+consumidores no migrados; no hay migracion de base ni rotacion de claves.
+Conservar par RSA, issuer y audience; no sustituir por HMAC ni debilitar firmas.
+
+## HU-01: caracterizacion previa (tareas 1.1 y 1.2)
+
+2026-10-21. Issue [#11](https://github.com/user-bcp-student33/workshop-auth-backend/issues/11),
+cambio `hu-01-signed-token-claims`, rama existente `feature/HU-1`.
+Solo se ampliaron pruebas existentes; no se modificaron clases productivas,
+contratos HTTP, dependencias, configuracion ni gates. No se crearon pruebas
+duplicadas del Dia 1 ni se implemento la validacion o propagacion de `client`.
+
+| tarea | prueba reutilizada | comportamiento protegido |
+|---|---|---|
+| 1.1 | `AuthResourceTest.characterizesSuccessfulResponseWithoutClient` (dos usuarios) | Login sin `client` sigue devolviendo 200, los cuatro campos publicos, identidad/rol y `expiresIn` entero 3600; se ampliaron las aserciones de issuer, audience, `iat` dentro del intervalo HTTP y `exp - iat = 3600`. |
+| 1.1 | Resto de `AuthResourceTest`, sin duplicarlo | Login con cliente, credenciales exactas, 400/401, errores 500 por llamada directa, JSON nulo/malformado, tipo incompatible, 405/406/415 y escape HTML mantienen sus expectativas. |
+| 1.1 | `AuthFailureTest`, sin modificarlo | Respuestas 500 genericas por HTTP y diagnostico saneado ante fallos controlados. Su ejecucion no completa la tarea 4.2 de logs de tokens y claves. |
+| 1.2 | `TokenServiceTest.emitsSignedCompactToken` | Firma valida con clave efimera y algoritmo permitido RS256; se agregaron aserciones explicitas de header RS256, issuer, audience y duracion literal de 3600 segundos, manteniendo `sub`, `role`, `iat`, `exp` y ausencia de secreto/password. |
+| 1.2 | Resto de `TokenServiceTest`, sin duplicarlo | Conserva rechazo de payload alterado, clave ajena y expiracion en el limite, y validacion de archivos PEM. Reloj fijo y claves de laboratorio, sin esperas reales. |
+
+Comando ejecutado desde la raiz de `workshop-auth-backend`, con JDK 21,
+SQLite de laboratorio bajo `target` y puerto HTTP dinamico:
+
+```powershell
+$env:JAVA_HOME = Split-Path (Split-Path (Get-Command java).Source)
+$env:AUTH_DB_URL = 'jdbc:sqlite:./target/hu01-characterization.db'
+$env:QUARKUS_HTTP_TEST_PORT = '0'
+mvn -B '-Dtest=AuthResourceTest,AuthFailureTest,TokenServiceTest' '-Djacoco.destFile=target/hu01-characterization.exec' '-Djacoco.append=false' test
+```
+
+Resultado comprobado en los informes Surefire: **35 pruebas aprobadas**:
+`AuthResourceTest` 28, `AuthFailureTest` 4 y `TokenServiceTest` 3;
+**0 fallos, 0 errores, 0 omitidas**. Informes regenerables en
+`target/surefire-reports/TEST-com.bcp.workshop.auth.<Clase>Test.xml`.
+El fixture existente genera y elimina las claves RSA de prueba.
+
+Las aserciones verifican el estado actual antes del cambio funcional, no la
+implementacion futura. El issue describe HMAC, pero proposal/design ya
+reconocen esa discrepancia y la caracterizacion conserva RS256. No se
+encontro una contradiccion nueva demostrada por las pruebas.
+Solo se completan 1.1 y 1.2: 2.1, 3.1, 3.2, 4.1, 4.2 y 5.1 siguen pendientes.
+No se ejecutaron `verify`, la suite completa, CI, CodeQL o SCA en esta etapa;
+el archivo JaCoCo aislado no certifica por si solo el gate de cobertura.
+
 ## Ejecucion aprobada H-05, H-06, H-07 y P-01
 
 Directorio de todos los comandos: raiz de este backend. JDK 21; por proceso:

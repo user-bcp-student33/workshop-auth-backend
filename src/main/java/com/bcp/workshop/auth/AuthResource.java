@@ -10,11 +10,13 @@ import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @Path("/auth")
 @Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)
 public class AuthResource {
+    private static final Pattern CLIENT = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$");
     private static final Logger LOG = Logger.getLogger(AuthResource.class);
     private static final String INTERNAL_ERROR_MESSAGE = "Internal server error";
     private static final String INTERNAL_ERROR_CODE = "InternalServerError";
@@ -29,7 +31,7 @@ public class AuthResource {
             if (validationMessage != null) {
                 return messageResponse(Response.Status.BAD_REQUEST, validationMessage);
             }
-            LoginResponse authenticated = service.authenticate(request.username, request.password);
+            LoginResponse authenticated = service.authenticate(request.username, request.password, request.client);
             if (authenticated == null) {
                 return messageResponse(Response.Status.UNAUTHORIZED, "Invalid user " + request.username + " or password");
             }
@@ -57,6 +59,9 @@ public class AuthResource {
         }
         if (request.password == null || request.password.trim().isEmpty()) {
             return "Password is required";
+        }
+        if (request.client == null || !CLIENT.matcher(request.client).matches()) {
+            return "Invalid client";
         }
         return null;
     }

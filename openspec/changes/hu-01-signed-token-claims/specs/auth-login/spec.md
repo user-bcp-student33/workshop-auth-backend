@@ -7,7 +7,7 @@ Define the observable login contract for validating the requested client, issuin
 ## ADDED Requirements
 
 ### Requirement: Login validates the requested client
-`POST /auth/login` MUST validate the request's `client` before issuing a token and MUST place that same validated value in the token's `client` claim. A missing or invalid client MUST NOT produce a successful login response or a token. The exact validity rule and public error response for an invalid client require review; no new status code or message is implied here.
+`client` MUST be a required string matching `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`, without trimming or normalization. Login MUST validate body, username, password, client, then credentials, in that order. Missing, null, empty or invalid clients MUST return HTTP 400 with exactly `{"message":"Invalid client"}` and no token. The accepted value MUST be copied unchanged to the JWT claim.
 
 #### Scenario: Valid client is reflected in the issued token
 - **WHEN** valid credentials and a client accepted by the approved validation rule are submitted to `POST /auth/login`
@@ -15,10 +15,18 @@ Define the observable login contract for validating the requested client, issuin
 
 #### Scenario: Missing or invalid client cannot issue a token
 - **WHEN** valid credentials are submitted with a missing or client value rejected by the approved validation rule
-- **THEN** the response is not a successful login and contains no issued token
+- **THEN** the response is HTTP 400 with exactly `{"message":"Invalid client"}` and contains no issued token
+
+#### Scenario: Client validation precedes credential verification
+- **WHEN** username and password are nonblank but credentials are incorrect and client is invalid
+- **THEN** the response is HTTP 400 with `{"message":"Invalid client"}`, without checking credentials or issuing a token
+
+#### Scenario: Non-string clients are not coerced to strings
+- **WHEN** client is a JSON number, boolean, array or object
+- **THEN** login returns HTTP 400 with exactly `{"message":"Invalid client"}` and no token
 
 ### Requirement: Successful login returns a signed token with minimum claims
-Every successful login MUST return a signed token containing `sub`, `client`, `iat`, and `exp`. `sub` MUST equal the authenticated username, `client` MUST equal the validated request value, and `iat` and `exp` MUST be Unix timestamps with `exp` later than `iat`. The existing `role`, `iss`, and `aud` claims MUST be preserved. The signing algorithm and library remain an explicit review decision because Issue #11 describes HMAC while the current contract and consumers require JWT RS256.
+Every successful login MUST return a JWT signed with RS256 using the existing SmallRye library. It MUST contain `sub` equal to username, `client` equal to the accepted value, Unix timestamps `iat` and `exp` with `exp > iat`, and preserved `role`, `iss`, `aud`. HMAC and shared-secret configuration MUST NOT be introduced by this change.
 
 #### Scenario: Successful token contains the required and preserved claims
 - **WHEN** a login succeeds
@@ -43,15 +51,15 @@ Except for behavior required to validate `client` and include its claim, login M
 - **THEN** the response retains `token`, integer `expiresIn`, `user.username`, `user.displayName`, `user.role`, and the fixed `debug` value `authenticated-with-legacy-flow`
 
 #### Scenario: Existing login validation and credential failures remain stable
-- **WHEN** the request is null, username or password is missing or blank, credentials do not match, or an internal error occurs
+- **WHEN** the request is null, username or password is missing or blank, or with a valid client credentials do not match or an internal error occurs
 - **THEN** the existing respective HTTP status and response fields/messages remain: null request 400 `Request is null`; missing username 400 `Username is required`; missing password 400 `Password is required`; unmatched credentials 401 `Invalid user <username> or password`; internal error 500 with `message: Internal server error` and `exception: InternalServerError`
 
 #### Scenario: Existing pre-method HTTP failures remain stable
-- **WHEN** the login route receives malformed JSON, an incompatible field type, an unsupported method, an incompatible Accept header, or an unsupported Content-Type
+- **WHEN** the login route receives malformed JSON, an incompatible credential field type, an unsupported method, an incompatible Accept header, or an unsupported Content-Type
 - **THEN** malformed JSON remains 400 with an empty body; an incompatible field type remains 400 with the runtime mapper response (for `{"username":{},"password":"x"}`: `{"objectName":"LoginRequest","attributeName":"username","line":1,"column":13,"value":null}`); an unsupported method remains 405 with an empty body; an incompatible Accept header remains 406 with an empty body; and an unsupported Content-Type remains 415 with an empty body
 
 ### Requirement: Tokens and signing secrets are excluded from logs
-Authentication logs MUST NOT contain issued tokens or signing secrets. If the approved signing strategy uses a shared secret, it MUST be configured through `AUTH_TOKEN_SECRET` without a default outside the laboratory; any retained laboratory-only default MUST be explicitly documented as laboratory-exclusive. The signing algorithm and the applicability of this shared-secret configuration remain subject to the HMAC-versus-RS256 review decision.
+Authentication logs MUST NOT contain issued tokens or signing secrets. The approved strategy retains RSA key configuration without a shared secret; `AUTH_TOKEN_SECRET` MUST NOT be added for this change. Any future shared-secret strategy requires a separate approved decision and no default outside the laboratory.
 
 #### Scenario: Login diagnostics redact token and signing material
 - **WHEN** a successful or failed login produces authentication logs

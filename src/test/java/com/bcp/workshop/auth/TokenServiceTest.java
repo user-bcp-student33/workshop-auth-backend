@@ -2,6 +2,7 @@ package com.bcp.workshop.auth;
 
 import org.jose4j.jwa.AlgorithmConstraints;
 import org.jose4j.jws.AlgorithmIdentifiers;
+import org.jose4j.jws.JsonWebSignature;
 import org.jose4j.jwt.NumericDate;
 import org.jose4j.jwt.consumer.InvalidJwtException;
 import org.jose4j.jwt.consumer.JwtConsumer;
@@ -14,6 +15,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Base64;
+import java.util.List;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -28,14 +30,21 @@ class TokenServiceTest {
     void emitsSignedCompactToken() throws Exception {
         KeyPair keys = TokenTestResource.keyPair();
         TokenService service = service(keys);
-        String token = service.create("fixture", "STUDENT");
+        String token = service.create("fixture", "STUDENT", "Web_A-01");
         assertEquals(3, token.split("\\.").length);
+        var signature = new JsonWebSignature();
+        signature.setCompactSerialization(token);
+        assertEquals(AlgorithmIdentifiers.RSA_USING_SHA256, signature.getAlgorithmHeaderValue());
         var claims = verifier(keys, NOW).processToClaims(token);
         assertEquals("fixture", claims.getSubject());
         assertEquals("STUDENT", claims.getStringClaimValue("role"));
+        assertEquals("Web_A-01", claims.getStringClaimValue("client"));
+        assertEquals(TokenTestResource.ISSUER, claims.getIssuer());
+        assertEquals(List.of(TokenTestResource.AUDIENCE), claims.getAudience());
         assertEquals(NOW.getEpochSecond() + TokenService.TTL_SECONDS,
                 claims.getExpirationTime().getValue());
         assertEquals(NOW.getEpochSecond(), claims.getIssuedAt().getValue());
+        assertEquals(3600L, claims.getExpirationTime().getValue() - claims.getIssuedAt().getValue());
         assertFalse(claims.getClaimsMap().containsKey("secret"));
         assertFalse(claims.getClaimsMap().containsKey("password"));
     }
@@ -43,7 +52,7 @@ class TokenServiceTest {
     @Test
     void rejectsModifiedPayloadWrongKeyAndExpirationBoundary() throws Exception {
         KeyPair keys = TokenTestResource.keyPair();
-        String token = service(keys).create("fixture", "STUDENT");
+        String token = service(keys).create("fixture", "STUDENT", "Web_A-01");
         String[] parts = token.split("\\.");
         String payload = new String(Base64.getUrlDecoder().decode(parts[1]), java.nio.charset.StandardCharsets.UTF_8);
         parts[1] = Base64.getUrlEncoder().withoutPadding().encodeToString(
@@ -71,7 +80,7 @@ class TokenServiceTest {
         Files.writeString(publicPem, TokenTestResource.pem("PUBLIC KEY", keys.getPublic().getEncoded()));
         TokenService loaded = new TokenService(TokenTestResource.ISSUER, TokenTestResource.AUDIENCE,
                 privatePem.toString(), publicPem.toString());
-        assertEquals(3, loaded.create("fixture", "STUDENT").split("\\.").length);
+        assertEquals(3, loaded.create("fixture", "STUDENT", "Web_A-01").split("\\.").length);
         assertThrows(IllegalStateException.class, () -> new TokenService("issuer", "audience",
                 directory.resolve("missing").toString(), publicPem.toString()));
         Files.writeString(publicPem, "not a PEM");

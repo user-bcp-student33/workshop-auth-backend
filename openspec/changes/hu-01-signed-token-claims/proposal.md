@@ -11,7 +11,7 @@ GitHub Issue #11 (`HU-01 - Token firmado con expiracion y claims minimos`) pide 
 - Mantener `expiresIn` en la respuesta y hacer verificable su coherencia con `exp - now`, documentando el instante de referencia y la tolerancia antes de fijar la asercion temporal exacta. No se propone cambiar campos ni tipos del response.
 - Evitar que logs incluyan el token o material secreto. Documentar el secreto como exclusivo del laboratorio si se conserva un valor por defecto para ese entorno; fuera de laboratorio no debe existir un secreto por defecto.
 - Preservar los campos, estados y mensajes actuales de login, credenciales y errores internos, excepto el rechazo que resulte necesario para validar `client`. Preservar tambien los rechazos HTTP previos al metodo cuando apliquen.
-- Registrar como decision pendiente la estrategia de firma: el issue describe HMAC; el contrato y los consumidores actuales esperan JWT RS256 y verifican algoritmo, issuer, audience, firma y vencimiento. Esta propuesta no elige algoritmo ni biblioteca.
+- Decision aprobada el 2026-10-21: conservar JWT RS256 y la biblioteca existente, sin agregar `AUTH_TOKEN_SECRET`. El texto HMAC del issue se reconoce como discrepancia historica, no como instruccion para cambiar el contrato.
 
 ## Capabilities
 
@@ -27,4 +27,4 @@ Afecta el contrato de `POST /auth/login`, la validacion del request, la emision 
 
 Fuera de alcance: otros endpoints (incluido `/q/health`), cambios de base de datos, migracion de consumidores y cambios no relacionados del formato de errores.
 
-Puntos que requieren resolucion durante la revision antes de implementar: (1) HMAC frente a RS256 y su impacto en consumidores; (2) relacion de `AUTH_TOKEN_SECRET` con la configuracion RSA actual; (3) regla de validez/formato o allowlist de `client`, respuesta publica para un cliente invalido y si se admite omitirlo; (4) instante de referencia y tolerancia documentada para `expiresIn` frente a `exp - now`. La ausencia de `client` no puede producir un token sin el claim requerido, pero esta propuesta no inventa un mensaje de error para ese caso.
+Decisiones aprobadas el 2026-10-21: mantener RS256 sin secreto compartido; exigir `client` sin trim con formato `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`; responder 400 `{"message":"Invalid client"}` si falta, es nulo, vacio o invalido. Orden de validacion: cuerpo, username, password, client y credenciales. El JWT conserva literalmente el cliente aceptado. La spec define `now` como el instante de emision representado por `iat` y tolerancia maxima de un segundo; `expiresIn` sigue siendo el entero 3600.

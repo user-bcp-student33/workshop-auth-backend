@@ -1,6 +1,6 @@
 # API HTTP del backend de autenticacion
 
-Contrato actualizado el 2026-10-19 tras H-05, comprobado con la suite
+Contrato actualizado el 2026-10-21 tras HU-01 (#11), comprobado con la suite
 HTTP y verificadores criptograficos locales. Base local por defecto:
 `http://localhost:8080`. JSON se entrega como `application/json; charset=UTF-8`;
 el orden de propiedades no es significativo.
@@ -44,7 +44,7 @@ Sin parametros de ruta ni query definidos por el resource.
 |---|---|---|---|
 | `username` | string | Si | Username exacto almacenado; no nulo, vacio ni solo blancos |
 | `password` | string | Si | Password exacto; no nulo, vacio ni solo blancos |
-| `client` | string | No | Identificador del cliente; se deserializa, pero no interviene en el login |
+| `client` | string | Si | Identificador exacto de 1 a 64 caracteres ASCII; formato `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`, sin trim ni normalizacion |
 
 Ejemplo completo, con credenciales exclusivamente de laboratorio:
 
@@ -58,6 +58,9 @@ Ejemplo completo, con credenciales exclusivamente de laboratorio:
 
 `trim()` se usa solo para detectar blancos: no se recortan las credenciales
 antes de compararlas. Se ignoran propiedades JSON desconocidas.
+Para `client` no hay coercion de tipos JSON: numeros, booleanos, arrays y
+objetos no son strings validos y reciben `400 {"message":"Invalid client"}`.
+Su valor aceptado se copia literalmente al claim `client` del JWT.
 Los usuarios iniciales son `student` (rol `STUDENT`) y `trainer` (rol `TRAINER`).
 La base puede contener otros registros; esos roles no son un enum validado
 por esta API.
@@ -101,10 +104,14 @@ el token, que debe obtenerse de la instancia y nunca reutilizarse de esta guia:
 No se devuelven `id` ni `password`.
 
 El token anterior Base64 fue reemplazado intencionalmente: no se emiten ambos
-formatos. Header `alg=RS256`; claims `sub` (username), `role` (rol),
+formatos. Header `alg=RS256`; claims `sub` (username), `client` (valor aceptado), `role` (rol),
 `iss` (issuer configurado), `aud` (audience configurado), `iat` y `exp`
 (timestamps Unix en segundos). `exp = iat + 3600`. La biblioteca puede incluir
 identificadores adicionales, que no deben considerarse campos estables del API.
+`expiresIn` es la vigencia desde la emision, no el tiempo restante al recibir
+la respuesta: `now` es el instante capturado, truncado a segundos y expresado
+por `iat`. La diferencia respecto a `exp - now` admite como maximo un segundo.
+Se conserva SmallRye JWT con claves RSA; no se agrega `AUTH_TOKEN_SECRET`.
 Los consumidores deben verificar firma con la clave publica correspondiente,
 algoritmo RS256, issuer, audience y vencimiento. No se agrego endpoint de
 validacion; la adopcion del formato nuevo en consumidores requiere coordinacion.
@@ -118,14 +125,17 @@ y [AuthResourceTest.java:39](../src/test/java/com/bcp/workshop/auth/AuthResource
 
 #### Errores definidos por el resource
 
-Se comprueba primero el cuerpo, luego username y despues password.
+Se comprueban cuerpo, username, password, client y credenciales en ese orden.
+Un cliente invalido prevalece sobre credenciales incorrectas no vacias;
+no se llama al servicio de autenticacion ni se emite token en ese caso.
 
 | HTTP | Cuando ocurre | Ejemplo completo de cuerpo JSON |
 |---|---|---|
 | 400 | Cuerpo deserializado como `null`; observado enviando el JSON `null` | `{"message":"Request is null"}` |
 | 400 | Username ausente, nulo, vacio o solo blancos | `{"message":"Username is required"}` |
 | 400 | Username valido pero password ausente, nulo, vacio o solo blancos | `{"message":"Password is required"}` |
-| 401 | No hay registro que coincida; ejemplo: `student` con password incorrecto | `{"message":"Invalid user student or password"}` |
+| 400 | Credenciales no vacias y client ausente, nulo, vacio, de tipo distinto de string o fuera del formato aprobado | `{"message":"Invalid client"}` |
+| 401 | Client valido y credenciales sin coincidencia; ejemplo: `student` con password incorrecto | `{"message":"Invalid user student or password"}` |
 | 500 | Excepcion que alcanza el catch del resource; probado con excepciones controladas, incluso sin mensaje o con contenido sensible | `{"message":"Internal server error","exception":"InternalServerError"}` |
 
 En 400/401, `message` es string. En el 401 se incluye literalmente el username

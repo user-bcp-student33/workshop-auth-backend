@@ -20,7 +20,7 @@ public class AuthService {
         this.tokens = tokens;
     }
 
-    public LoginResponse authenticate(String username, String password) {
+    public LoginResponse authenticate(String username, String password, String client) {
         var credentials = database.findByUsername(username);
         if (credentials == null) {
             return null;
@@ -28,7 +28,7 @@ public class AuthService {
         if (!verifyPassword(password, credentials.passwordHash())) {
             return null;
         }
-        return responseFor(credentials.user());
+        return responseFor(credentials.user(), client);
     }
 
     private boolean verifyPassword(String password, String hash) {
@@ -40,10 +40,10 @@ public class AuthService {
         }
     }
 
-    private LoginResponse responseFor(UserRecord user) {
+    private LoginResponse responseFor(UserRecord user, String client) {
         var publicUser = new LoginResponse.User(user.username(),
                 StringEscapeUtils.escapeHtml4(user.displayName()), user.role());
-        return new LoginResponse(tokens.create(user.username(), user.role()),
+        return new LoginResponse(tokens.create(user.username(), user.role(), client),
                 TokenService.TTL_SECONDS, publicUser, DEBUG_FLOW);
     }
 }

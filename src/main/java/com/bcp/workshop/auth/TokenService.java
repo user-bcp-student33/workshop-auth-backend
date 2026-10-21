@@ -46,9 +46,10 @@ public class TokenService {
         this.clock = clock;
     }
 
-    public String create(String username, String role) {
+    public String create(String username, String role, String client) {
         long issuedAt = clock.instant().getEpochSecond();
         return Jwt.issuer(issuer).subject(username).audience(audience).claim("role", role)
+                .claim("client", client)
                 .issuedAt(issuedAt).expiresAt(issuedAt + TTL_SECONDS).sign(privateKey);
     }
 
